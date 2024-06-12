@@ -12,7 +12,8 @@ using System.Text;
 using System.Text.Json;
 using System.Net.Http;
 
-public class AiVisionHelper {
+public class AiVisionHelper
+{
 
     private string _apiKeyVision = "";
     private string _endPointVision = "";
@@ -22,21 +23,21 @@ public class AiVisionHelper {
 
     private string _connectionStringStorage = "";
 
-    private string _textEmbeddingUrl = @"{AR_VISION_ENDPOINT}/computervision/retrieval:vectorizeText?api-version=2023-02-01-preview&modelVersion=latest";
-    private string _imageEmbeddingUrl = @"{AR_VISION_ENDPOINT}/computervision/retrieval:vectorizeImage?api-version=2023-02-01-preview&modelVersion=latest";
+    private string _textEmbeddingUrl = @"{AR_VISION_ENDPOINT}/computervision/retrieval:vectorizeText?api-version=2024-02-01&model-version=2023-04-15";
+    private string _imageEmbeddingUrl = @"{AR_VISION_ENDPOINT}/computervision/retrieval:vectorizeImage?api-version=2024-02-01&model-version=2023-04-15";
     private string _imageEmbeddingPayload = @"{""url"":""{IMAGE_URL}""}";
-    
+
     SearchIndexClient searchIndexClient;
 
 
     public AiVisionHelper(
-        string apiKeyVision, string endPointVision, 
-        string apiKeySearch, string endpointSearch, 
+        string apiKeyVision, string endPointVision,
+        string apiKeySearch, string endpointSearch,
         string connectionStringStorage)
     {
         _apiKeyVision = apiKeyVision;
         _endPointVision = endPointVision;
-        
+
         _apiKeySearch = apiKeySearch;
         _endPointSearch = endpointSearch;
 
@@ -53,7 +54,7 @@ public class AiVisionHelper {
         string url = _textEmbeddingUrl.Replace("{AR_VISION_ENDPOINT}", _endPointVision);
         string requestPayload = $"{{\"text\":\"{text}\"}}";
 
-        return  await GetEmbedding(url, requestPayload);
+        return await GetEmbedding(url, requestPayload);
     }
 
     public async Task<float[]> GetImageEmbedding(string imageUrl)
@@ -71,8 +72,9 @@ public class AiVisionHelper {
         HttpClient httpClient = new HttpClient();
         httpClient.DefaultRequestHeaders.Add("Ocp-Apim-Subscription-Key", _apiKeyVision);
         HttpContent httpContent = new StringContent(requestPayload, Encoding.UTF8, "application/json");
-        
-        HttpRequestMessage httpRequestMessage = new HttpRequestMessage(HttpMethod.Post, url) {
+
+        HttpRequestMessage httpRequestMessage = new HttpRequestMessage(HttpMethod.Post, url)
+        {
             Content = httpContent
         };
         HttpResponseMessage httpResponseMessage = await httpClient.SendAsync(httpRequestMessage);
@@ -83,7 +85,7 @@ public class AiVisionHelper {
             Console.WriteLine($"Error: {httpResponseMessage.StatusCode}");
             return new float[0];
         }
-        
+
         //Parse response
         JsonDocument jsonDocument = JsonDocument.Parse(
             await httpResponseMessage.Content.ReadAsStringAsync()
@@ -113,8 +115,9 @@ public class AiVisionHelper {
         using FileStream fileStream = File.OpenRead(localFilePath);
         await blobClient.UploadAsync(fileStream, true);
 
-        //Create SAS token 
-        BlobSasBuilder blobSasBuilder = new BlobSasBuilder() {
+        //Create SAS token
+        BlobSasBuilder blobSasBuilder = new BlobSasBuilder()
+        {
             BlobContainerName = containerName,
             BlobName = blobName,
             Resource = "b"
@@ -127,7 +130,34 @@ public class AiVisionHelper {
 
     }
 
-    public async Task<bool> CreateSearchIndex(string indexName) {
+    public async Task<Uri> GetBlobSharedUrl(string blobUrl)
+    {
+        // Parse the blobUrl to get the container name and blob name
+        Uri blobUri = new Uri(blobUrl);
+        string containerName = blobUri.Segments[1].TrimEnd('/');
+        string blobName = string.Join("", blobUri.Segments.Skip(2));
+
+        // Create blob client
+        BlobServiceClient blobServiceClient = new BlobServiceClient(_connectionStringStorage);
+        BlobContainerClient blobContainerClient = blobServiceClient.GetBlobContainerClient(containerName);
+        BlobClient blobClient = blobContainerClient.GetBlobClient(blobName);
+
+        // Generate SAS token for read access
+        BlobSasBuilder blobSasBuilder = new BlobSasBuilder()
+        {
+            BlobContainerName = containerName,
+            BlobName = blobName,
+            Resource = "b"
+        };
+        blobSasBuilder.SetPermissions(BlobSasPermissions.Read);
+        blobSasBuilder.ExpiresOn = DateTimeOffset.UtcNow.AddHours(1);
+        Uri sasUri = blobClient.GenerateSasUri(blobSasBuilder);
+
+        return sasUri;
+    }
+
+    public async Task<bool> CreateSearchIndex(string indexName)
+    {
 
         string searchConfigName = "fact-config";
 
@@ -136,9 +166,9 @@ public class AiVisionHelper {
         {
             Fields =
             {
-                new SimpleField("ImageId", SearchFieldDataType.String) { IsKey = true, IsFilterable = true, IsSortable = true, IsFacetable = true },
-                new SearchableField("ImageDescription") { IsFilterable = true },
-                new SearchField("ImageVector", SearchFieldDataType.Collection(SearchFieldDataType.Single))
+                new SimpleField("image_parent_id", SearchFieldDataType.String) { IsKey = true, IsFilterable = true, IsSortable = true, IsFacetable = true },
+                new SearchableField("title") { IsFilterable = true },
+                new SearchField("image_vector", SearchFieldDataType.Collection(SearchFieldDataType.Single))
                 {
                     IsSearchable = true,
                     VectorSearchDimensions = modelDimensions,
@@ -152,19 +182,19 @@ public class AiVisionHelper {
                     new HnswVectorSearchAlgorithmConfiguration(searchConfigName)
                 }
             }
-        }; 
+        };
 
-        try { await searchIndexClient.DeleteIndexAsync(indexName); } catch {}
-        await searchIndexClient.CreateIndexAsync(searchIndex); 
+        try { await searchIndexClient.DeleteIndexAsync(indexName); } catch { }
+        await searchIndexClient.CreateIndexAsync(searchIndex);
 
-        return true; 
+        return true;
     }
 
     public async Task<bool> StoreImageEmbedding(string indexName, List<ImageEmbedding> imageEmbeddings)
     {
         SearchClient searchClient = searchIndexClient.GetSearchClient(indexName);
         await searchClient.IndexDocumentsAsync(IndexDocumentsBatch.Upload(imageEmbeddings));
-        return true; 
+        return true;
     }
 
     internal async Task<List<ImageEmbedding>> QuerySearchIndex(string indexName, float[] queryVector)
@@ -173,8 +203,9 @@ public class AiVisionHelper {
 
         SearchResults<ImageEmbedding> response = await searchClient.SearchAsync<ImageEmbedding>(
             null,
-            new SearchOptions {
-                Vectors = { new() { Value = queryVector, KNearestNeighborsCount = 1, Fields = { "ImageVector" } } },
+            new SearchOptions
+            {
+                Vectors = { new() { Value = queryVector, KNearestNeighborsCount = 5, Fields = { "image_vector" } } },
             }
         );
 
@@ -184,14 +215,16 @@ public class AiVisionHelper {
             results.Add(result.Document);
         }
 
-        return results; 
+        return results;
     }
 }
 
 public class ImageEmbedding
 {
-    public string ImageId { get; set; } = "";
-    public string ImageDescription { get; set; } = "";
-    public float[] ImageVector { get; set; } = new float[1024];
+    public string image_parent_id { get; set; } = "";
+    public string title { get; set; } = "";
+    public float[] image_vector { get; set; } = new float[1024];
+
+    public string metadata_storage_path { get; set; } = "";
 }
 
